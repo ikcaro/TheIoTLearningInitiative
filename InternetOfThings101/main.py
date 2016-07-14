@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 import paho.mqtt.client as paho
+import pyupm_grove as grove
 import json
 import uuid
 import psutil
@@ -15,15 +16,39 @@ from flask import Flask
 from flask_restful import Api, Resource
 
 DeviceID = 0
+Sensor = 0
+Actuator = 0
 
-class DataSensorRestApi(Resource):
+class DataActuatorRelay:
+    relay = 0
+
+    def __init__(self):
+        self.relay = grove.GroveRelay(2)
+
+    def set(self, value):
+        if value == "on":
+            self.relay.on()
+        else:
+            self.relay.off()
+
     def get(self):
-        netdata = psutil.net_io_counters()
-        data = netdata.packets_sent + netdata.packets_recv
-        return data
+        return "On" if self.relay.isOn() else "Off"
+
+class DataSensorLight(Resource):
+    light = 0
+
+    def __init__(self):
+        self.light = grove.GroveLight(0)
+
+    def get(self):
+        return self.light.value()
 
 def functionDataActuator(status):
-    print "Data Actuator Status %s" % status
+    global Actuator
+    Actuator.set(status)
+
+    print "Data Actuator Status %s" % Actuator.get()
+
 
 def functionDataActuatorMqttOnMessage(mosq, obj, msg):
     print "Data Sensor Mqtt Subscribe Message!"
@@ -40,8 +65,8 @@ def functionDataActuatorMqttSubscribe():
         pass
 
 def functionDataSensor():
-    s = DataSensorRestApi()
-    return s.get()
+    global Sensor
+    return Sensor.get()
 
 def functionDataSensorMqttOnPublish(mosq, obj, msg):
     print "Data Sensor Mqtt Published!"
@@ -61,19 +86,17 @@ def functionDataSensorMqttPublish():
 def functionApiWeather():
     while True:
         data = pywapi.get_weather_from_weather_com('MXJO0043', 'metric')
-        message = data['location']['name']
-        message = message + ", Temperature " + data['current_conditions']['temperature'] + " C"
-        message = message + ", Atmospheric Pressure " + data['current_conditions']['barometer']['reading'][:-3] + " mbar"
+        message  = data['location']['name']
+        message += ", Temperature " + data['current_conditions']['temperature'] + " C"
+        message += ", Atmospheric Pressure " + data['current_conditions']['barometer']['reading'][:-3] + " mbar"
         
         print "API Weather: %s" % message
         time.sleep(5)
 
 def functionServicesDweet():
-    s = DataSensorRestApi()
-    
     while True:
-        dweepy.dweet_for('NetworkStatsIoT', {'Packets': s.get()})
-        print dweepy.get_latest_dweet_for('NetworkStatsIoT')
+        dweepy.dweet_for('LightIoT', {'Value': functionDataSensor()})
+        print dweepy.get_latest_dweet_for('LightIoT')
         time.sleep(5)
 
 def functionDataSensorMqttPublishIBM():
@@ -94,7 +117,7 @@ def functionDataSensorMqttPublishIBM():
     
     while True:
         data = functionDataSensor()
-        msg = json.JSONEncoder().encode({"d":{"netpackets":data}})
+        msg = json.JSONEncoder().encode({"d": {"light": functionDataSensor()}})
         mqttclient.publish(topic, msg)
         time.sleep(5)
 
@@ -102,7 +125,7 @@ def functionDataSensorFlask():
     app = Flask(__name__)
     api = Api(app)
     
-    api.add_resource(DataSensorRestApi, '/sensor')
+    api.add_resource(DataSensorLight, '/sensor')
     app.run(host='0.0.0.0', debug=True)
 
 def functionSignalHandler(signal, frame):
@@ -114,6 +137,9 @@ if __name__ == '__main__':
     
     print "Hello Internet of Things 101"
     print "Device ID: %s" % DeviceID
+
+    Sensor = DataSensorLight()
+    Actuator = DataActuatorRelay()
 
     signal.signal(signal.SIGINT,  functionSignalHandler)
 

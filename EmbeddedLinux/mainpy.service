@@ -1,0 +1,13 @@
+[Unit]
+Description=Main Python Service
+Wants=network-online.target
+After=wpa_supplicant.service network.target network-online.target
+
+[Service]
+ExecStart=/usr/bin/python /home/root/TheIoTLearningInitiative/EmbeddedLinux/main.py
+Restart=always
+RestartSec=10 
+
+[Install]
+Alias=MainPython
+WantedBy=multi-user.target
